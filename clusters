@@ -1,0 +1,91 @@
+#!/usr/bin/env python
+import sys
+import os
+import configparser
+import subprocess
+
+class Group(object):
+    def __init__(self, name=''):
+        self.name = name
+        self.clusters = []
+
+class Cluster(object):
+    def __init__(self, name=''):
+        self.name = name
+        self.args = []
+
+class ClusterTool:
+    group_sel = ''
+    all_groups = False
+    config_file = os.environ.get('CLUSTERS_CONFIG', './clusters.ini')
+    kubectl_args = []
+    groups = {}
+    
+    def parse_args(self):
+        arg = sys.argv
+        if len(arg) == 0:
+            print('please provide cluster group name, use all for all group.')
+        if arg[1] == 'all':
+            self.all_groups = True
+        else:
+            self.group_sel = arg[1]
+        self.kubectl_args = arg[2:]
+        self._parse_config()
+
+    def _parse_config(self):
+        config = open(self.config_file, 'r') 
+        tmp_group = None
+        for l in config.readlines():
+            l = l.strip()
+            if l.startswith('#'):
+                continue
+            if l.startswith('[') and l.endswith(']'):
+                if tmp_group:
+                    self.groups[tmp_group.name] = tmp_group
+                name = l[1:len(l)-1]
+                tmp_group = Group(name)
+            else:
+                cluster_var_dict = {}
+                cluster_vars = l.split(' ')
+                if len(cluster_vars) > 0:
+                    cluster = Cluster()
+                    for a_var in cluster_vars:
+                        kv = a_var.split('=')
+                        if len(kv) == 2:
+                            cluster_var_dict[kv[0]] = kv[1]
+                            if kv[0] == 'name':
+                                cluster.name = kv[1]
+                            else:
+                                cluster.args.append('--{key}={value}'.format(key=kv[0], value=kv[1]))
+                    if not cluster.name: cluster.name = cluster_var_dict.get('context')
+                    if cluster.name:
+                        tmp_group.clusters.append(cluster)
+
+        if tmp_group:
+            self.groups[tmp_group.name] = tmp_group
+            
+    def run(self):
+        if self.group_sel not in self.groups and not self.all_groups:
+            print('group not found in config file: ', self.config_file)
+            exit(1)
+        
+        targets = self.groups if self.all_groups else {self.group_sel: self.groups[self.group_sel]}
+        for k, g in targets.items():
+            print('[GROUP]: {name} '.format(name=k)+ '-'*80)
+            self._run_group(g)
+            print('')
+
+    def _run_group(self, group):
+        for cluster in group.clusters:
+            print('[CLUSTER]: {name} '.format(name=cluster.name)+ '-'*50)
+            args = ['kubectl']
+            args.extend(cluster.args)
+            args.extend(self.kubectl_args)
+            print('[DEBUG]', ' '.join(args))
+            subprocess.call(args)
+            print('')
+            
+if __name__ == '__main__':
+    tool = ClusterTool()
+    tool.parse_args()
+    tool.run()
