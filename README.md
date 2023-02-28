@@ -1,6 +1,6 @@
 # kubectl-cluster
 
-Exec command on multiple clustes.
+Exec command on multiple clusters.
 
 
 ## Set cluster.ini 
